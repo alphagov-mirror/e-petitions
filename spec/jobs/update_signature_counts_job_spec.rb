@@ -331,6 +331,68 @@ RSpec.describe UpdateSignatureCountsJob, type: :job do
           expect(Appsignal).to have_received(:send_exception).with(an_instance_of(RuntimeError))
         end
       end
+
+      context "when the count has never been updated before" do
+        let(:petition) { FactoryBot.create(:pending_petition) }
+
+        before do
+          Site.signature_count_updated_at!(nil)
+        end
+
+        context "and there are no validated signatures" do
+          it "updates Site#signature_count_updated_at" do
+            expect {
+              described_class.perform_now(current_time.iso8601)
+            }.to change {
+              Site.signature_count_updated_at
+            }.from(nil).to(current_time - 30.seconds)
+          end
+        end
+
+        context "and there are validated signatures" do
+          let(:petition) { FactoryBot.create(:open_petition) }
+          let(:attributes) { { petition: petition, location_code: location.code, constituency_id: "9999" } }
+          let(:signatures) { FactoryBot.create_list(:pending_signature, 5, attributes) }
+
+          before do
+            signatures.each do |signature|
+              signature.validate!(current_time - 45.seconds)
+            end
+          end
+
+          it "updates Site#signature_count_updated_at" do
+            expect {
+              described_class.perform_now(current_time.iso8601)
+            }.to change {
+              Site.signature_count_updated_at
+            }.to(current_time - 30.seconds)
+          end
+
+          it "updates the signature count" do
+            expect {
+              described_class.perform_now(current_time.iso8601)
+            }.to change {
+              petition.reload.signature_count
+            }.by(5)
+          end
+
+          it "updates the country journal signature_count" do
+            expect {
+              described_class.perform_now(current_time.iso8601)
+            }.to change {
+              country_journal.reload.signature_count
+            }.by(5)
+          end
+
+          it "updates the constituency journal signature_count" do
+            expect {
+              described_class.perform_now(current_time.iso8601)
+            }.to change {
+              constituency_journal.reload.signature_count
+            }.by(5)
+          end
+        end
+      end
     end
   end
 end
